@@ -1,0 +1,1 @@
+using System.Windows; namespace MRXRustTranslator; public partial class App : Application { }
