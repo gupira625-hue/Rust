@@ -1,0 +1,14 @@
+using System.Collections.ObjectModel; using System.Drawing; using System.Drawing.Imaging; using System.IO; using System.Windows; using System.Windows.Threading; using Tesseract;
+namespace MRXRustTranslator;
+public partial class MainWindow : Window {
+ readonly ObservableCollection<ChatLine> lines=new(); readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(1200)}; TesseractEngine? ocr; string last=""; bool busy;
+ public MainWindow(){InitializeComponent();ChatItems.ItemsSource=lines;timer.Tick+=async(_,_)=>await ScanAsync();Topmost=true;}
+ void Topmost_Changed(object s,RoutedEventArgs e)=>Topmost=TopmostCheck.IsChecked==true;
+ void Start_Click(object s,RoutedEventArgs e){try{var d=Path.Combine(AppContext.BaseDirectory,"tessdata");if(!File.Exists(Path.Combine(d,"eng.traineddata"))||!File.Exists(Path.Combine(d,"rus.traineddata"))){StatusText.Text="Не найдены OCR языки в папке tessdata.";return;}ocr?.Dispose();ocr=new TesseractEngine(d,"eng+rus",EngineMode.LstmOnly);timer.Start();StatusText.Text="OCR работает. Сканирую экран…";}catch(Exception ex){StatusText.Text=ex.Message;}}
+ void Stop_Click(object s,RoutedEventArgs e){timer.Stop();StatusText.Text="Остановлено.";}
+ async Task ScanAsync(){if(busy||ocr==null)return;busy=true;try{int x=Math.Max(0,int.Parse(XBox.Text)),y=Math.Max(0,int.Parse(YBox.Text)),w=Math.Clamp(int.Parse(WBox.Text),100,3000),h=Math.Clamp(int.Parse(HBox.Text),80,2000);using var bmp=new Bitmap(w,h);using(var g=Graphics.FromImage(bmp))g.CopyFromScreen(x,y,0,0,new System.Drawing.Size(w,h));using var ms=new MemoryStream();bmp.Save(ms,ImageFormat.Png);using var pix=Pix.LoadFromMemory(ms.ToArray());using var page=ocr.Process(pix);var t=page.GetText().Trim();if(t.Length>2&&t!=last){last=t;var tr=await Translator.TranslateAsync(t,"ru");Dispatcher.Invoke(()=>{lines.Add(new ChatLine(t,tr));while(lines.Count>100)lines.RemoveAt(0);});}}catch(Exception ex){Dispatcher.Invoke(()=>StatusText.Text="OCR: "+ex.Message);}finally{busy=false;}}
+ async void TranslateOutgoing_Click(object s,RoutedEventArgs e){if(string.IsNullOrWhiteSpace(OutgoingBox.Text))return;try{StatusText.Text="Перевожу…";ResultBox.Text=await Translator.TranslateAsync(OutgoingBox.Text,"en");StatusText.Text="Готово. Скопируй и вставь в игру.";}catch(Exception ex){StatusText.Text=ex.Message;}}
+ void Copy_Click(object s,RoutedEventArgs e){if(!string.IsNullOrWhiteSpace(ResultBox.Text)){Clipboard.SetText(ResultBox.Text);StatusText.Text="Скопировано.";}}
+ protected override void OnClosed(EventArgs e){timer.Stop();ocr?.Dispose();base.OnClosed(e);}
+}
+public record ChatLine(string Original,string Translated);
